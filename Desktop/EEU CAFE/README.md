@@ -16,8 +16,8 @@ A modern, responsive web application for displaying daily-changing cafe menus wi
 ### Backend
 - **Node.js** - Runtime environment
 - **Express** - Web framework
-- **MongoDB** - Database
-- **Mongoose** - MongoDB ODM
+- **SQLite** - Lightweight, file-based database (perfect for daily-changing menu data)
+- **better-sqlite3** - Fast, synchronous SQLite3 library
 
 ## Features
 
@@ -50,7 +50,7 @@ For full production deployment including backend, see [PRODUCTION_DEPLOYMENT.md]
 ### Prerequisites
 
 - Node.js 18+ and npm
-- MongoDB (local or MongoDB Atlas)
+- No additional database setup required! SQLite is file-based and works out of the box.
 
 ### Installation
 
@@ -66,8 +66,9 @@ For full production deployment including backend, see [PRODUCTION_DEPLOYMENT.md]
    **Backend** (`backend/.env`):
    ```env
    PORT=5000
-   MONGODB_URI=mongodb://localhost:27017/eeu-cafe
    ADMIN_KEY=your-secret-admin-key-change-this
+   # Optional: Custom database path (default: backend/data/eeu-cafe.db)
+   # DB_PATH=./data/eeu-cafe.db
    ```
 
    **Frontend** (`frontend/.env`):
@@ -75,12 +76,7 @@ For full production deployment including backend, see [PRODUCTION_DEPLOYMENT.md]
    VITE_API_URL=http://localhost:5000/api
    ```
 
-4. **Start MongoDB** (if using local MongoDB):
-   ```bash
-   mongod
-   ```
-
-5. **Run the development servers:**
+4. **Run the development servers:**
    ```bash
    npm run dev
    ```
@@ -120,8 +116,10 @@ eeu-cafe/
 │   ├── package.json
 │   └── vite.config.js
 ├── backend/
-│   ├── models/             # MongoDB models
+│   ├── database/           # SQLite database initialization
+│   ├── models/             # Data models
 │   ├── routes/             # API routes
+│   ├── data/               # SQLite database file (created automatically)
 │   ├── server.js           # Express server
 │   └── package.json
 ├── package.json            # Root package.json
@@ -201,14 +199,15 @@ The app automatically detects which meal period is currently active:
 
 1. Set environment variables in your hosting platform
 2. Deploy the `backend` folder
-3. Ensure MongoDB Atlas connection string is set
+3. The SQLite database file will be created automatically
+4. For production, consider backing up the `data/eeu-cafe.db` file regularly
 
-### Database (MongoDB Atlas)
+### Database (SQLite)
 
-1. Create a free MongoDB Atlas account
-2. Create a cluster
-3. Get connection string
-4. Update `MONGODB_URI` in backend `.env`
+- **No setup required!** SQLite is file-based and works automatically
+- Database file location: `backend/data/eeu-cafe.db` (created on first run)
+- **Backup**: Simply copy the `.db` file to backup your data
+- **Why SQLite?** Perfect for daily-changing menu data - simple, fast, reliable, and no separate server needed
 
 ## License
 

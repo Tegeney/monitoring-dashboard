@@ -1,5 +1,4 @@
 import express from 'express'
-import mongoose from 'mongoose'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import path from 'path'
@@ -7,6 +6,7 @@ import { fileURLToPath } from 'url'
 import menuRoutes from './routes/menu.js'
 import adminRoutes from './routes/admin.js'
 import uploadRoutes from './routes/upload.js'
+import { db, DB_PATH } from './database/db.js'
 
 dotenv.config()
 
@@ -71,16 +71,34 @@ if (NODE_ENV === 'production') {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  let dbStatus = 'ok'
+  try {
+    // Test database connection with a simple query
+    db.prepare('SELECT 1').get()
+  } catch (error) {
+    dbStatus = 'error'
+    console.error('Database health check failed:', error.message)
+  }
+  
+  const health = {
+    status: dbStatus === 'ok' ? 'ok' : 'degraded',
     message: 'EEU CAFE API is running',
     environment: NODE_ENV,
     timestamp: new Date().toISOString(),
-    mongodb: {
-      connected: mongoose.connection.readyState === 1,
-      state: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    database: {
+      type: 'SQLite',
+      status: dbStatus,
+      path: DB_PATH,
+      open: db.open
+    },
+    uptime: process.uptime(),
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB',
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + ' MB'
     }
-  })
+  }
+  
+  res.status(dbStatus === 'ok' ? 200 : 503).json(health)
 })
 
 // Error handling middleware
@@ -103,131 +121,28 @@ app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'API endpoint not found' })
 })
 
-// Connect to MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/eeu-cafe'
-
-let isMongoConnected = false
-let reconnectAttempts = 0
-const MAX_RECONNECT_ATTEMPTS = 5
-
-// MongoDB connection options
-const mongooseOptions = {
-  serverSelectionTimeoutMS: 30000, // 30 seconds
-  socketTimeoutMS: 45000, // 45 seconds
-  connectTimeoutMS: 30000, // 30 seconds
-  retryWrites: true,
-  w: 'majority',
-}
-
-// Connection event handlers
-mongoose.connection.on('connected', () => {
-  isMongoConnected = true
-  reconnectAttempts = 0
-  console.log('✅ Connected to MongoDB')
-})
-
-mongoose.connection.on('error', (error) => {
-  isMongoConnected = false
-  console.error('❌ MongoDB connection error:', error.message)
-})
-
-mongoose.connection.on('disconnected', () => {
-  isMongoConnected = false
-  console.log('⚠️  MongoDB disconnected. Attempting to reconnect...')
-  attemptReconnect()
-})
-
-// Reconnection function
-function attemptReconnect() {
-  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    console.error('❌ Max reconnection attempts reached. Please check your MongoDB connection.')
-    return
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`)
+  console.log(`📦 Environment: ${NODE_ENV}`)
+  console.log(`💾 Database: SQLite at ${DB_PATH}`)
+  if (NODE_ENV === 'production') {
+    console.log('✅ Production mode enabled')
   }
-
-  reconnectAttempts++
-  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000) // Exponential backoff, max 30s
-  
-  console.log(`🔄 Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay/1000}s...`)
-  
-  setTimeout(() => {
-    connectToMongoDB()
-  }, delay)
-}
-
-// Connection function
-function connectToMongoDB() {
-  mongoose
-    .connect(MONGODB_URI, mongooseOptions)
-    .then(() => {
-      isMongoConnected = true
-      reconnectAttempts = 0
-      console.log('✅ Connected to MongoDB')
-    })
-    .catch((error) => {
-      isMongoConnected = false
-      console.error('❌ MongoDB connection error:', error.message)
-      
-      // Provide helpful error messages
-      if (error.message.includes('querySrv EREFUSED') || error.message.includes('ENOTFOUND')) {
-        console.log('💡 Tip: Check your MongoDB Atlas connection string and network access.')
-        console.log('💡 Tip: Ensure your IP address is whitelisted in MongoDB Atlas.')
-      } else if (error.message.includes('authentication failed')) {
-        console.log('💡 Tip: Check your MongoDB username and password in the connection string.')
-      } else if (error.message.includes('timeout')) {
-        console.log('💡 Tip: Check your network connection and MongoDB Atlas cluster status.')
-      }
-      
-      // Attempt reconnection
-      attemptReconnect()
-    })
-}
-
-// Initial connection
-connectToMongoDB()
-
-// Start server immediately (don't wait for MongoDB)
-function startServer() {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`)
-    console.log(`📦 Environment: ${NODE_ENV}`)
-    if (NODE_ENV === 'production') {
-      console.log('✅ Production mode enabled')
-    }
-    if (!isMongoConnected) {
-      console.log('⚠️  MongoDB not connected - operations may fail')
-      console.log('⚠️  Menu data will not persist until connection is established.')
-    }
-  })
-}
-
-startServer()
+})
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM signal received: closing HTTP server')
-  mongoose.connection.close(() => {
-    console.log('MongoDB connection closed')
-    process.exit(0)
-  })
+  db.close()
+  console.log('SQLite database closed')
+  process.exit(0)
 })
 
 process.on('SIGINT', () => {
   console.log('SIGINT signal received: closing HTTP server')
-  mongoose.connection.close(() => {
-    console.log('MongoDB connection closed')
-    process.exit(0)
-  })
-})
-
-// Make connection status available globally
-global.isMongoConnected = isMongoConnected
-
-// Update global status when connection changes
-mongoose.connection.on('connected', () => {
-  global.isMongoConnected = true
-})
-
-mongoose.connection.on('disconnected', () => {
-  global.isMongoConnected = false
+  db.close()
+  console.log('SQLite database closed')
+  process.exit(0)
 })
 
